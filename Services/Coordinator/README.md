@@ -39,16 +39,23 @@ Requirements: Go 1.26+, PostgreSQL (localhost), MinIO/Silo (localhost).
 psql -U postgres -c "CREATE USER letsdeeprock WITH PASSWORD 'letsdeeprock123';"
 psql -U postgres -c "CREATE DATABASE letsdeeprock OWNER letsdeeprock;"
 
-# MinIO/Silo on 127.0.0.1:9000 with MINIO_ROOT_USER/PASSWORD matching
-# coordinator.env.example defaults.
+# MinIO/Silo on 127.0.0.1:9000 with MINIO_ROOT_USER/PASSWORD matching .env.
 
-# Run
+# Configuration
+cp .env.example .env   # adjust credentials; .env is gitignored
+
+# Run (loads .env automatically; systemd EnvironmentFile covers production)
 go run ./cmd/coordinator            # control plane (:8443) + STUN (:3478)
 go run ./cmd/coordinator -stun      # STUN only
 
 # Tests (need PostgreSQL + MinIO running)
 go test ./...
 ```
+
+Configuration is read from environment variables (see `.env.example`):
+`COORDINATOR_HTTP_ADDR`, `COORDINATOR_STUN_ADDR`, `DATABASE_URL`,
+`MINIO_ENDPOINT/BUCKET/ACCESS_KEY/SECRET_KEY`, `JWT_SECRET`,
+`TLS_CERT_FILE`, `TLS_KEY_FILE`.
 
 ## API summary
 
