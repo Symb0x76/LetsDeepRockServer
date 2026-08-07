@@ -30,6 +30,7 @@ import (
 
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
+	"github.com/joho/godotenv"
 )
 
 func main() {
@@ -39,6 +40,10 @@ func main() {
 	flag.Parse()
 
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stdout, nil)))
+
+	// Load .env for local development; systemd EnvironmentFile covers
+	// production. Existing env vars win (godotenv never overwrites).
+	_ = godotenv.Load()
 
 	cfg := config.FromEnv()
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
