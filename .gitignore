@@ -28,5 +28,28 @@ go.work.sum
 .env
 
 # Editor/IDE
-# .idea/
-# .vscode/
+.idea/
+.vscode/
+
+# Local Doc
+docs/
+
+# codegraph
+.codegraph/
+
+# Claude
+.claude/
+
+# Codex
+.codex/
+
+# OpenCode
+.opencode/
+
+# Agents
+.agent/
+AGENTS.md
+AGENT.md
+
+# Remember MCP
+.remember/MinIO/
