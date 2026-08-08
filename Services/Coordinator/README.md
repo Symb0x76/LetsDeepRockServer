@@ -82,8 +82,11 @@ GET  /v1/matches/{id}/checkpoints/latest
 
 ## Deployment
 
-Linux native binary + systemd; see `deploy/` for unit files and the env
-template. PostgreSQL and MinIO listen on localhost only.
+Linux native binary + systemd. Copy `.env.example` to
+`/etc/letsdeeprock/coordinator.env` (loaded by `EnvironmentFile`); the
+binary runs `coordinator` (control plane + STUN) or `coordinator -stun`
+(STUN only) as two systemd units. PostgreSQL and MinIO/Silo listen on
+localhost only.
 
 ## Phase 2 (not implemented)
 
