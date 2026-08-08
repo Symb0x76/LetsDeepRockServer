@@ -148,6 +148,10 @@ func (s *Service) Commit(ctx context.Context, req CommitRequest, deviceID string
 	if err := tx.Commit(ctx); err != nil {
 		return CommitResult{}, err
 	}
+
+	// commit 成功后执行回收策略(5 上限 / 成员离开即删)
+	_ = s.EnforceRetention(ctx, req.MatchId)
+
 	return CommitResult{ObjectKey: objKey, CommittedAt: time.Now()}, nil
 }
 
@@ -206,4 +210,124 @@ func (s *Service) EnsureBucket(ctx context.Context) error {
 		return s.minio.MakeBucket(ctx, s.bucket, minio.MakeBucketOptions{})
 	}
 	return nil
+}
+
+// 回收策略常量
+const (
+	// 每个 match 保留的最近 checkpoint 数量上限
+	MaxCheckpointsPerMatch = 5
+	// 未确认全部成员离开时的强制删除 TTL(24h)
+	CheckpointForceTTL = 24 * time.Hour
+)
+
+// EnforceRetention 在 commit 后执行回收:
+//  1. 该 match 的 checkpoints 超过 MaxCheckpointsPerMatch → 删最旧
+//  2. 该 match 所有成员已离开(match_peers 空)→ 删全部
+func (s *Service) EnforceRetention(ctx context.Context, matchID string) error {
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	// 规则 2:成员全部离开 → 删全部
+	var peerCount int
+	err = tx.QueryRow(ctx,
+		`SELECT count(*) FROM match_peers WHERE match_id = $1`, matchID).Scan(&peerCount)
+	if err != nil {
+		return err
+	}
+	if peerCount == 0 {
+		rows, err := tx.Query(ctx,
+			`SELECT object_key FROM checkpoints WHERE match_id = $1`, matchID)
+		if err != nil {
+			return err
+		}
+		var keys []string
+		for rows.Next() {
+			var k string
+			if err := rows.Scan(&k); err != nil {
+				rows.Close()
+				return err
+			}
+			keys = append(keys, k)
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return err
+		}
+
+		if _, err := tx.Exec(ctx,
+			`DELETE FROM checkpoints WHERE match_id = $1`, matchID); err != nil {
+			return err
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return err
+		}
+		// 事务外删 MinIO object
+		for _, k := range keys {
+			_ = s.minio.RemoveObject(ctx, s.bucket, k, minio.RemoveObjectOptions{})
+		}
+		return nil
+	}
+
+	// 规则 1:超过数量上限 → 删最旧(只删元数据行,文件等后台 TTL 清)
+	var overCount int
+	err = tx.QueryRow(ctx,
+		`SELECT count(*) - $2 FROM checkpoints WHERE match_id = $1`,
+		matchID, MaxCheckpointsPerMatch).Scan(&overCount)
+	if err != nil {
+		return err
+	}
+	if overCount > 0 {
+		if _, err := tx.Exec(ctx, `
+			DELETE FROM checkpoints
+			WHERE match_id = $1
+			AND (authority_epoch, snapshot_revision) IN (
+				SELECT authority_epoch, snapshot_revision
+				FROM checkpoints
+				WHERE match_id = $1
+				ORDER BY authority_epoch DESC, snapshot_revision DESC
+				OFFSET $2
+			)`, matchID, MaxCheckpointsPerMatch); err != nil {
+			return err
+		}
+	}
+	return tx.Commit(ctx)
+}
+
+// RunRetentionLoop 后台定时清理过期 checkpoint(24h 兜底)。
+// 每 1 小时执行一次;过期 = expires_at < now()。
+func (s *Service) RunRetentionLoop(ctx context.Context) {
+	ticker := time.NewTicker(1 * time.Hour)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			rows, err := s.pool.Query(ctx,
+				`SELECT object_key FROM checkpoints WHERE expires_at < now()`)
+			if err != nil {
+				continue
+			}
+			var keys []string
+			for rows.Next() {
+				var k string
+				if err := rows.Scan(&k); err != nil {
+					rows.Close()
+					break
+				}
+				keys = append(keys, k)
+			}
+			rows.Close()
+			if _, err := s.pool.Exec(ctx,
+				`DELETE FROM checkpoints WHERE expires_at < now()`); err != nil {
+				continue
+			}
+			for _, k := range keys {
+				_ = s.minio.RemoveObject(ctx, s.bucket, k, minio.RemoveObjectOptions{})
+			}
+		}
+	}
 }

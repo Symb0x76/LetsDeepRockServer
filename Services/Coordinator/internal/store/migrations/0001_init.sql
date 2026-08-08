@@ -88,6 +88,7 @@ CREATE TABLE IF NOT EXISTS checkpoints (
     snapshot_schema_version INT NOT NULL,
     committed_by         TEXT NOT NULL,
     committed_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+    expires_at           TIMESTAMPTZ NOT NULL DEFAULT now() + interval '24 hours',
     PRIMARY KEY (match_id, authority_epoch, snapshot_revision)
 );
 
