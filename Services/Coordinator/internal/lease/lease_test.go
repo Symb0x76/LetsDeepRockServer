@@ -7,8 +7,10 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/letsdeeprock/coordinator/internal/store"
 )
 
+// testPool connects and applies migrations so tests are self-contained.
 func testPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
 	url := os.Getenv("COORDINATOR_TEST_DATABASE_URL")
@@ -20,6 +22,11 @@ func testPool(t *testing.T) *pgxpool.Pool {
 		t.Fatalf("connect: %v", err)
 	}
 	t.Cleanup(pool.Close)
+
+	st := &store.Store{Pool: pool}
+	if err := st.Migrate(context.Background()); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
 	return pool
 }
 

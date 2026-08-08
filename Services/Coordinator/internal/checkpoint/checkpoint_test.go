@@ -10,10 +10,13 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/letsdeeprock/coordinator/internal/store"
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
 )
 
+// testStore connects, applies migrations and prepares the MinIO bucket
+// so tests are self-contained.
 func testStore(t *testing.T) (*pgxpool.Pool, *minio.Client, string) {
 	t.Helper()
 	url := os.Getenv("COORDINATOR_TEST_DATABASE_URL")
@@ -25,6 +28,11 @@ func testStore(t *testing.T) (*pgxpool.Pool, *minio.Client, string) {
 		t.Fatalf("connect: %v", err)
 	}
 	t.Cleanup(pool.Close)
+
+	st := &store.Store{Pool: pool}
+	if err := st.Migrate(context.Background()); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
 
 	mc, err := minio.New("127.0.0.1:9000", &minio.Options{
 		Creds:  credentials.NewStaticV4("letsdeeprock", "letsdeeprock123", ""),

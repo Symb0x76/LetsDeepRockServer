@@ -9,10 +9,12 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/letsdeeprock/coordinator/internal/store"
 )
 
-// testStore connects to the local dev database, created by running the
-// migrations; set COORDINATOR_TEST_DATABASE_URL to override.
+// testStore connects to the local dev database and applies schema
+// migrations so tests are self-contained on a fresh database.
+// Set COORDINATOR_TEST_DATABASE_URL to override.
 func testStore(t *testing.T) *pgxpool.Pool {
 	t.Helper()
 	url := os.Getenv("COORDINATOR_TEST_DATABASE_URL")
@@ -24,6 +26,11 @@ func testStore(t *testing.T) *pgxpool.Pool {
 		t.Fatalf("connect: %v", err)
 	}
 	t.Cleanup(pool.Close)
+
+	st := &store.Store{Pool: pool}
+	if err := st.Migrate(context.Background()); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
 	return pool
 }
 
