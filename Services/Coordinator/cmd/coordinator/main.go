@@ -97,6 +97,7 @@ func runCoordinator(ctx context.Context, cfg config.Config, stop context.CancelF
 	matchHandler := &httpapi.MatchHandler{Service: matchSvc, Hub: matchHub}
 	mux.HandleFunc("POST /v1/matches", httpapi.RequireDevice(authSvc, matchHandler.Create))
 	mux.HandleFunc("POST /v1/matches/{matchId}/join", httpapi.RequireDevice(authSvc, matchHandler.Join))
+	mux.HandleFunc("POST /v1/matches/join", httpapi.RequireDevice(authSvc, matchHandler.Join))
 	mux.HandleFunc("POST /v1/matches/{matchId}/leave", httpapi.RequireDevice(authSvc, matchHandler.Leave))
 	mux.HandleFunc("GET /v1/matches/{matchId}", httpapi.RequireDevice(authSvc, matchHandler.Get))
 	mux.HandleFunc("GET /v1/matches/{matchId}/events", httpapi.RequireDevice(authSvc, matchHandler.Events))
