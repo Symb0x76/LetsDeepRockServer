@@ -234,3 +234,88 @@ func TestCommitHashMismatch(t *testing.T) {
 		t.Fatalf("wrong size should fail with ErrSizeMismatch, got %v", err)
 	}
 }
+
+// uploadAndCommit uploads a blob and commits it for the given match/epoch/revision.
+func uploadAndCommit(t *testing.T, svc *Service, ctx context.Context, matchID string, host string, epoch, revision uint64, payload []byte) {
+	t.Helper()
+	sum := sha256.Sum256(payload)
+	hash := hex.EncodeToString(sum[:])
+
+	url, _, err := svc.PresignedUploadURL(ctx, matchID, epoch, revision, hash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req, _ := http.NewRequest(http.MethodPut, url, bytes.NewReader(payload))
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil || resp.StatusCode != 200 {
+		t.Fatalf("upload: %v", err)
+	}
+	resp.Body.Close()
+
+	if _, err := svc.Commit(ctx, CommitRequest{
+		MatchId: matchID, AuthorityEpoch: epoch, RosterRevision: 0, SnapshotRevision: revision,
+		PayloadHash: hash, PayloadSize: int64(len(payload)),
+		SaveFormatVersion: 1, SnapshotSchemaVersion: 1,
+	}, host); err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+}
+
+func TestRetentionMaxFivePerMatch(t *testing.T) {
+	pool, mc, bucket := testStore(t)
+	svc := NewService(pool, mc, bucket)
+	ctx := context.Background()
+
+	host := "ckpt-host-" + t.Name()
+	matchID := seedMatch(t, pool, host)
+
+	// commit 7 个 checkpoint(epoch 1, revision 1..7)
+	for i := uint64(1); i <= 7; i++ {
+		uploadAndCommit(t, svc, ctx, matchID, host, 1, i, []byte{byte(i), byte(i), byte(i)})
+	}
+
+	// 保留最近 5 个(revision 3..7),revision 1..2 被回收
+	var count int
+	_ = pool.QueryRow(ctx,
+		`SELECT count(*) FROM checkpoints WHERE match_id = $1`, matchID).Scan(&count)
+	if count != 5 {
+		t.Fatalf("expected 5 checkpoints after retention, got %d", count)
+	}
+
+	var oldest uint64
+	_ = pool.QueryRow(ctx,
+		`SELECT snapshot_revision FROM checkpoints WHERE match_id = $1 ORDER BY snapshot_revision ASC LIMIT 1`,
+		matchID).Scan(&oldest)
+	if oldest != 3 {
+		t.Fatalf("expected oldest kept revision 3, got %d", oldest)
+	}
+}
+
+func TestRetentionDeleteAllWhenPeersLeave(t *testing.T) {
+	pool, mc, bucket := testStore(t)
+	svc := NewService(pool, mc, bucket)
+	ctx := context.Background()
+
+	host := "ckpt-host-" + t.Name()
+	matchID := seedMatch(t, pool, host)
+
+	// commit 2 个
+	uploadAndCommit(t, svc, ctx, matchID, host, 1, 1, []byte{1})
+	uploadAndCommit(t, svc, ctx, matchID, host, 1, 2, []byte{2})
+
+	// 成员全部离开
+	if _, err := pool.Exec(ctx,
+		`DELETE FROM match_peers WHERE match_id = $1`, matchID); err != nil {
+		t.Fatal(err)
+	}
+
+	// 再 commit 一个 → 触发成员离开即删全部
+	uploadAndCommit(t, svc, ctx, matchID, host, 1, 3, []byte{3})
+
+	var count int
+	_ = pool.QueryRow(ctx,
+		`SELECT count(*) FROM checkpoints WHERE match_id = $1`, matchID).Scan(&count)
+	if count != 0 {
+		t.Fatalf("expected 0 checkpoints after all peers leave, got %d", count)
+	}
+}

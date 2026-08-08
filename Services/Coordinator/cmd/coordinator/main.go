@@ -134,6 +134,7 @@ func runCoordinator(ctx context.Context, cfg config.Config, stop context.CancelF
 		slog.Error("ensure minio bucket failed", "err", err)
 		os.Exit(1)
 	}
+	go ckptSvc.RunRetentionLoop(ctx)
 	ckptHandler := &httpapi.CheckpointHandler{Service: ckptSvc, Hub: matchHub}
 	mux.HandleFunc("POST /v1/matches/{matchId}/checkpoints/begin", httpapi.RequireDevice(authSvc, ckptHandler.Begin))
 	mux.HandleFunc("POST /v1/matches/{matchId}/checkpoints/commit", httpapi.RequireDevice(authSvc, ckptHandler.Commit))
