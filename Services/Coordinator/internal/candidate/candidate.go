@@ -153,7 +153,10 @@ func (s *Service) ListCandidates(ctx context.Context, matchID, deviceID string) 
 	}
 	defer rows.Close()
 
-	var out []protocol.EndpointCandidate
+	// 空结果返回空数组而非 nil:encoding/json 会把 nil slice 序列化为
+	// "candidates":null,UE 端 TryGetArrayField 对 null 返回 false 导致
+	// 客户端把正常空列表误判为响应解析失败。
+	out := make([]protocol.EndpointCandidate, 0)
 	for rows.Next() {
 		var c protocol.EndpointCandidate
 		var transport, candType string
