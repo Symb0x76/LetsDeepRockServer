@@ -54,6 +54,8 @@ func (h *CandidateHandler) AddCandidate(w http.ResponseWriter, r *http.Request) 
 			writeErr(w, http.StatusForbidden, "not a member")
 		case err == candidate.ErrStaleEpoch || err == candidate.ErrInvalidEpoch:
 			writeErr(w, http.StatusConflict, err.Error())
+		case err == candidate.ErrRelayAllocation:
+			writeErr(w, http.StatusForbidden, err.Error())
 		default:
 			slog.Error("store candidate failed", "err", err)
 			writeErr(w, http.StatusInternalServerError, "store failed")
