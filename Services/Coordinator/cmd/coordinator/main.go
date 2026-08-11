@@ -12,6 +12,7 @@ import (
 	"errors"
 	"flag"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -25,6 +26,7 @@ import (
 	"github.com/letsdeeprock/coordinator/internal/httpapi"
 	"github.com/letsdeeprock/coordinator/internal/lease"
 	"github.com/letsdeeprock/coordinator/internal/match"
+	"github.com/letsdeeprock/coordinator/internal/relay"
 	"github.com/letsdeeprock/coordinator/internal/store"
 	"github.com/letsdeeprock/coordinator/internal/stun"
 
@@ -115,12 +117,34 @@ func runCoordinator(ctx context.Context, cfg config.Config, stop context.CancelF
 	mux.HandleFunc("POST /v1/matches/{matchId}/connectivity/check-result", httpapi.RequireDevice(authSvc, candHandler.CheckResult))
 	mux.HandleFunc("POST /v1/matches/{matchId}/connectivity/nominate", httpapi.RequireDevice(authSvc, candHandler.Nominate))
 
-	stunSrv := stun.New(stun.Config{Addr: cfg.STUNAddr})
+	stunCfg := stun.Config{Addr: cfg.STUNAddr}
+	if cfg.RelaySecret != "" {
+		stunCfg.SharedSecret = cfg.RelaySecret
+		stunCfg.RelayAddr = cfg.RelayAddr
+		stunCfg.RelayMinPort = cfg.RelayMinPort
+		stunCfg.RelayMaxPort = cfg.RelayMaxPort
+		stunCfg.MaxAllocsPerUser = cfg.RelayMaxAllocsUser
+	}
+	stunSrv := stun.New(stunCfg)
 	if err := stunSrv.Start(ctx); err != nil {
 		slog.Error("stun start failed", "err", err)
 		os.Exit(1)
 	}
 	defer stunSrv.Close()
+
+	if cfg.RelaySecret != "" {
+		relayStore := relay.NewStore(st.Pool)
+		relaySvc := relay.NewService(relayStore, cfg.RelaySecret, cfg.RelayAddr, cfg.RelayTTL)
+		go relaySvc.RunPruneLoop(ctx)
+		// persist allocations as the TURN server creates them, so relayed
+		// candidates can reference relay_allocation_id
+		stunSrv.SetOnAllocation(func(username string, clientAddr, relayAddr net.Addr) {
+			relaySvc.RecordAllocation(ctx, username, clientAddr, relayAddr)
+		})
+		relayHandler := &httpapi.RelayHandler{Service: relaySvc}
+		mux.HandleFunc("POST /v1/matches/{matchId}/relay/credentials", httpapi.RequireDevice(authSvc, relayHandler.Credentials))
+		slog.Info("turn relay enabled", "relay_addr", cfg.RelayAddr)
+	}
 
 	minioClient, err := minio.New(cfg.MinIOEndpoint, &minio.Options{
 		Creds:  credentials.NewStaticV4(cfg.MinIOAccessKey, cfg.MinIOSecretKey, ""),
