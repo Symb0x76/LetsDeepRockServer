@@ -3,7 +3,8 @@
 //
 // Candidates are stamped with MatchId / AuthorityEpoch / RosterRevision /
 // PeerId; writes from stale epochs are rejected so an old host can never
-// publish an endpoint over a newer term.
+// publish an endpoint over a newer term. Relayed candidates reference a
+// relay allocation that must belong to the same match and peer.
 package candidate
 
 import (
@@ -18,10 +19,11 @@ import (
 )
 
 var (
-	ErrMatchNotFound  = errors.New("match not found")
-	ErrNotMember      = errors.New("not a member of match")
-	ErrStaleEpoch     = errors.New("candidate epoch is stale")
-	ErrInvalidEpoch   = errors.New("candidate epoch does not match current lease")
+	ErrMatchNotFound    = errors.New("match not found")
+	ErrNotMember        = errors.New("not a member of match")
+	ErrStaleEpoch       = errors.New("candidate epoch is stale")
+	ErrInvalidEpoch     = errors.New("candidate epoch does not match current lease")
+	ErrRelayAllocation  = errors.New("relay allocation does not belong to this match/peer")
 )
 
 type Service struct {
@@ -70,6 +72,27 @@ func (s *Service) StoreCandidate(ctx context.Context, c protocol.EndpointCandida
 	}
 	if err != nil {
 		return err
+	}
+
+	// a relayed candidate must reference a relay allocation owned by this
+	// match and peer; otherwise any member could forge a relayed address
+	if c.CandidateType == protocol.CandidateTypeRelayed {
+		if c.RelayAllocationId == "" {
+			return ErrRelayAllocation
+		}
+		var allocMatch, allocPeer string
+		err = tx.QueryRow(ctx,
+			`SELECT match_id, peer_id FROM relay_allocations WHERE allocation_id = $1`,
+			c.RelayAllocationId).Scan(&allocMatch, &allocPeer)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrRelayAllocation
+		}
+		if err != nil {
+			return err
+		}
+		if allocMatch != c.MatchId || allocPeer != c.PeerId {
+			return ErrRelayAllocation
+		}
 	}
 
 	expires := c.ExpiresAt

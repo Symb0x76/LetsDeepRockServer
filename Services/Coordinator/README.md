@@ -14,6 +14,12 @@ runs an Unreal world.
 | `coordinator` (default) | REST + WebSocket control plane, PostgreSQL + MinIO |
 | `coordinator -stun` | Standalone STUN Binding service (UDP :3478) |
 
+With `RELAY_SECRET` set, the STUN listener additionally serves TURN
+allocations (RFC 5766) on the same socket: short-lived REST credentials
+(`timestamp:matchId:peerId` usernames, HMAC-SHA1 passwords), per-credential
+allocation quota, and allocation rows persisted to `relay_allocations` for
+relayed candidates.
+
 ## Architecture
 
 ```
@@ -75,6 +81,7 @@ POST /v1/matches/{id}/peers/{pid}/candidates
 GET  /v1/matches/{id}/peers/{pid}/candidates
 POST /v1/matches/{id}/connectivity/check-result
 POST /v1/matches/{id}/connectivity/nominate   # host publishes endpoint
+POST /v1/matches/{id}/relay/credentials       # short-lived TURN credential
 POST /v1/matches/{id}/checkpoints/begin       # presigned PUT URL
 POST /v1/matches/{id}/checkpoints/commit      # verify + commit metadata
 GET  /v1/matches/{id}/checkpoints/latest
@@ -88,7 +95,9 @@ binary runs `coordinator` (control plane + STUN) or `coordinator -stun`
 (STUN only) as two systemd units. PostgreSQL and MinIO/Silo listen on
 localhost only.
 
-## Phase 2 (not implemented)
+## Phase 2 (in progress)
 
-Custom UE transport/NetDriver for relay paths, TURN allocation and relay
-candidate support. `internal/relay/` is reserved.
+Go-side TURN relay is implemented: REST credentials, allocation tracking
+and relayed-candidate validation. Custom UE transport/NetDriver
+(`WeaponRelaySocket` / `WeaponRelayNetDriver`) to carry gameplay over a
+relay path is not implemented yet.

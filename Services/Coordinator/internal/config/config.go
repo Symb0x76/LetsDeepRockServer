@@ -2,6 +2,7 @@ package config
 
 import (
 	"os"
+	"strconv"
 	"time"
 )
 
@@ -17,6 +18,16 @@ type Config struct {
 	TLSCertFile   string
 	TLSKeyFile    string
 	LeaseTTL      time.Duration
+
+	// TURN relay support. When RelaySecret is empty the STUN listener runs
+	// STUN-only (no allocations). RelayAddr is the public address advertised
+	// in allocation responses.
+	RelaySecret       string
+	RelayAddr         string
+	RelayMinPort      uint16
+	RelayMaxPort      uint16
+	RelayTTL          time.Duration
+	RelayMaxAllocsUser int
 }
 
 func FromEnv() Config {
@@ -32,7 +43,26 @@ func FromEnv() Config {
 		TLSCertFile:   getenv("TLS_CERT_FILE", ""),
 		TLSKeyFile:    getenv("TLS_KEY_FILE", ""),
 		LeaseTTL:      30 * time.Second,
+
+		RelaySecret:        getenv("RELAY_SECRET", ""),
+		RelayAddr:          getenv("RELAY_ADDR", ""),
+		RelayMinPort:       uint16(getenvInt("RELAY_MIN_PORT", 49152)),
+		RelayMaxPort:       uint16(getenvInt("RELAY_MAX_PORT", 65535)),
+		RelayTTL:           time.Duration(getenvInt("RELAY_TTL_SECONDS", 3600)) * time.Second,
+		RelayMaxAllocsUser: getenvInt("RELAY_MAX_ALLOCS_PER_USER", 8),
 	}
+}
+
+func getenvInt(key string, fallback int) int {
+	v := os.Getenv(key)
+	if v == "" {
+		return fallback
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil {
+		return fallback
+	}
+	return n
 }
 
 func getenv(key, fallback string) string {
