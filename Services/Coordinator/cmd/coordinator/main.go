@@ -25,6 +25,7 @@ import (
 	"github.com/letsdeeprock/coordinator/internal/httpapi"
 	"github.com/letsdeeprock/coordinator/internal/lease"
 	"github.com/letsdeeprock/coordinator/internal/match"
+	"github.com/letsdeeprock/coordinator/internal/relay"
 	"github.com/letsdeeprock/coordinator/internal/store"
 	"github.com/letsdeeprock/coordinator/internal/stun"
 
@@ -121,6 +122,25 @@ func runCoordinator(ctx context.Context, cfg config.Config, stop context.CancelF
 		os.Exit(1)
 	}
 	defer stunSrv.Close()
+
+	// TURN relay: shares the coordinator's JWT secret as the TURN long-term
+	// credential secret, so /relay/credentials and the TURN server agree
+	// without extra configuration.
+	turnSrv := relay.NewServer(cfg.JWTSecret, cfg.TURNRealm)
+	turnHandle, err := turnSrv.Start(cfg.TURNADDR)
+	if err != nil {
+		slog.Error("turn start failed", "err", err)
+		os.Exit(1)
+	}
+	defer func() { _ = turnHandle.Close() }()
+
+	relayHandler := &httpapi.RelayHandler{
+		Pool:      st.Pool,
+		Secret:    cfg.JWTSecret,
+		Realm:     cfg.TURNRealm,
+		RelayAddr: cfg.TURNADDR,
+	}
+	mux.HandleFunc("POST /v1/matches/{matchId}/relay/credentials", httpapi.RequireDevice(authSvc, relayHandler.Credentials))
 
 	minioClient, err := minio.New(cfg.MinIOEndpoint, &minio.Options{
 		Creds:  credentials.NewStaticV4(cfg.MinIOAccessKey, cfg.MinIOSecretKey, ""),
