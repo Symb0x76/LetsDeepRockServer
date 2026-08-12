@@ -75,10 +75,22 @@ func (s *Service) StoreCandidate(ctx context.Context, c protocol.EndpointCandida
 	}
 
 	// a relayed candidate must reference a relay allocation owned by this
-	// match and peer; otherwise any member could forge a relayed address
+	// match and peer; otherwise any member could forge a relayed address.
+	// The UE client does not know its allocation id (the TURN server mints it),
+	// so resolve it from relay_allocations by (match, peer) when omitted.
 	if c.CandidateType == protocol.CandidateTypeRelayed {
-		if c.RelayAllocationId == "" {
-			return ErrRelayAllocation
+		allocID := c.RelayAllocationId
+		if allocID == "" {
+			err = tx.QueryRow(ctx,
+				`SELECT allocation_id FROM relay_allocations WHERE match_id = $1 AND peer_id = $2 AND expires_at > now() ORDER BY created_at DESC LIMIT 1`,
+				c.MatchId, c.PeerId).Scan(&allocID)
+			if errors.Is(err, pgx.ErrNoRows) {
+				return ErrRelayAllocation
+			}
+			if err != nil {
+				return err
+			}
+			c.RelayAllocationId = allocID
 		}
 		var allocMatch, allocPeer string
 		err = tx.QueryRow(ctx,
