@@ -1,8 +1,10 @@
 package config
 
 import (
+	"net"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -45,12 +47,34 @@ func FromEnv() Config {
 		LeaseTTL:       30 * time.Second,
 
 		RelaySecret:        getenv("RELAY_SECRET", ""),
-		RelayAddr:          getenv("RELAY_ADDR", ""),
+		RelayAddr:          normalizeRelayAddr(getenv("RELAY_ADDR", "")),
 		RelayMinPort:       uint16(getenvInt("RELAY_MIN_PORT", 49152)),
 		RelayMaxPort:       uint16(getenvInt("RELAY_MAX_PORT", 65535)),
 		RelayTTL:           time.Duration(getenvInt("RELAY_TTL_SECONDS", 3600)) * time.Second,
 		RelayMaxAllocsUser: getenvInt("RELAY_MAX_ALLOCS_PER_USER", 8),
 	}
+}
+
+// normalizeRelayAddr canonicalizes the TURN server address into host[:port].
+// RELAY_ADDR historically held a bare IP (pion needs an IP, clients dial the
+// server); both the stun and relay packages now consume host:port, so a bare
+// IP/domain is completed with the default STUN port 3478.
+func normalizeRelayAddr(addr string) string {
+	addr = strings.TrimSpace(addr)
+	if addr == "" {
+		return ""
+	}
+	// Strip a scheme prefix if a deployer wrote turn:host:port.
+	if strings.HasPrefix(strings.ToLower(addr), "turn:") {
+		addr = addr[len("turn:"):]
+	}
+	// Bare IPv6 in brackets has no port; anything with a last colon already
+	// carries a port (host:port or [v6]:port). A bare unbracketed IPv6 or a
+	// bare host has none — append the default.
+	if !strings.Contains(addr, ":") {
+		return net.JoinHostPort(addr, "3478")
+	}
+	return addr
 }
 
 func getenvInt(key string, fallback int) int {

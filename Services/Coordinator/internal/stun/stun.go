@@ -53,22 +53,55 @@ type Config struct {
 	OnAllocation func(username string, clientAddr, relayAddr net.Addr)
 }
 
+// New validates and normalizes the relay address before building the server.
+// RelayAddr is host[:port] (RELAY_ADDR): the host part may be an IP or a
+// domain name, which pion needs resolved to an IP for allocation responses.
 func New(cfg Config) *Server {
 	if cfg.MinGap == 0 {
 		cfg.MinGap = 200 * time.Millisecond
+	}
+	relayIP := resolveRelayIP(cfg.RelayAddr)
+	if relayIP == nil {
+		slog.Warn("relay address invalid; TURN allocations will be rejected",
+			"relayAddr", cfg.RelayAddr)
 	}
 	return &Server{
 		addr:           cfg.Addr,
 		lastSeen:       make(map[string]time.Time),
 		minGap:         cfg.MinGap,
 		turnEnabled:    cfg.SharedSecret != "",
-		relayAddr:      net.ParseIP(cfg.RelayAddr),
+		relayAddr:      relayIP,
 		relayMinPort:   cfg.RelayMinPort,
 		relayMaxPort:   cfg.RelayMaxPort,
 		sharedSecret:   cfg.SharedSecret,
 		maxAllocsUser:  cfg.MaxAllocsPerUser,
 		onAllocation:   cfg.OnAllocation,
 	}
+}
+
+// resolveRelayIP extracts the host part of a host[:port] relay address and
+// resolves it to an IP. It returns nil when the address is missing or cannot
+// be resolved; a nil IP makes pion reject allocations, which surfaces the
+// misconfiguration instead of advertising a bogus address.
+func resolveRelayIP(relayAddr string) net.IP {
+	if relayAddr == "" {
+		return nil
+	}
+	host, _, err := net.SplitHostPort(relayAddr)
+	if err != nil {
+		// No port: treat the whole string as a bare host.
+		host = relayAddr
+	}
+	// net.SplitHostPort already strips IPv6 brackets; trim any leftovers.
+	host = strings.Trim(host, "[]")
+	if ip := net.ParseIP(host); ip != nil {
+		return ip
+	}
+	addrs, err := net.LookupHost(host)
+	if err != nil || len(addrs) == 0 {
+		return nil
+	}
+	return net.ParseIP(addrs[0])
 }
 
 // Start binds the UDP listener and begins serving STUN (and TURN) requests.
