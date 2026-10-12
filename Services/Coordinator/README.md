@@ -51,7 +51,7 @@ psql -U postgres -c "CREATE DATABASE letsdeeprock OWNER letsdeeprock;"
 cp .env.example .env   # adjust credentials; .env is gitignored
 
 # Run (loads .env automatically; systemd EnvironmentFile covers production)
-go run ./cmd/coordinator            # control plane (:8443) + STUN (:3478)
+go run ./cmd/coordinator            # control plane (:8444) + STUN (:3478)
 go run ./cmd/coordinator -stun      # STUN only
 
 # Tests (need PostgreSQL + MinIO running)
