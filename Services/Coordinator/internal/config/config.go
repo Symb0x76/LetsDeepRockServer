@@ -34,7 +34,7 @@ type Config struct {
 
 func FromEnv() Config {
 	return Config{
-		HTTPAddr:       getenv("COORDINATOR_HTTP_ADDR", ":8443"),
+		HTTPAddr:       getenv("COORDINATOR_HTTP_ADDR", ":8444"),
 		STUNAddr:       getenv("COORDINATOR_STUN_ADDR", ":3478"),
 		DatabaseURL:    getenv("DATABASE_URL", "postgres://letsdeeprock:letsdeeprock123@127.0.0.1:5432/letsdeeprock"),
 		MinIOEndpoint:  getenv("MINIO_ENDPOINT", "127.0.0.1:9000"),
@@ -48,7 +48,7 @@ func FromEnv() Config {
 
 		RelaySecret:        getenv("RELAY_SECRET", ""),
 		RelayAddr:          normalizeRelayAddr(getenv("RELAY_ADDR", "")),
-		RelayMinPort:       uint16(getenvInt("RELAY_MIN_PORT", 49152)),
+		RelayMinPort:       uint16(getenvInt("RELAY_MIN_PORT", 65531)),
 		RelayMaxPort:       uint16(getenvInt("RELAY_MAX_PORT", 65535)),
 		RelayTTL:           time.Duration(getenvInt("RELAY_TTL_SECONDS", 3600)) * time.Second,
 		RelayMaxAllocsUser: getenvInt("RELAY_MAX_ALLOCS_PER_USER", 8),
